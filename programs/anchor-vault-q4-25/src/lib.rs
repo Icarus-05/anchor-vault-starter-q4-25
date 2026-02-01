@@ -1,9 +1,10 @@
 use anchor_lang::{
-    prelude::*,
-    system_program::{transfer, Transfer},
+    accounts::signer, prelude::*, system_program::{Transfer, transfer}
 };
 
-declare_id!("2u5cG7PEVL5KdTRMWSjdwqtBVv1anE5Hvv4FGSPZVRUN");
+// use crate::__cpi_client_accounts_close::Close;
+
+declare_id!("HNx2B46cpMxBcx9fnD5Xk4AXSd2zZuRrDzgCLCF2AU2V");
 
 #[program]
 pub mod anchor_vault_q4_25 {
@@ -17,13 +18,14 @@ pub mod anchor_vault_q4_25 {
         ctx.accounts.deposit(amount)
     }
 
-    // pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-    //     ctx.accounts.withdraw(amount)
-    // }
 
-    // pub fn close(ctx: Context<Close>) -> Result<()> {
-    //     ctx.accounts.close()
-    // }
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        ctx.accounts.withdraw(amount)
+    }
+
+    pub fn close(ctx:Context<Close>) -> Result<()> {
+        ctx.accounts.close()
+    }
 }
 
 #[derive(Accounts)]
@@ -105,30 +107,87 @@ impl<'info> Deposit<'info> {
     }
 }
 
-// #[derive(Accounts)]
-// pub struct Withdraw<'info> {
-// TODO: Implement Withdraw accounts
-// }
 
-// impl<'info> Withdraw<'info> {
-//     pub fn withdraw(&mut self, _amount: u64) -> Result<()> {
-//         TODO: Implement withdraw
+#[derive(Accounts)]
+pub struct Withdraw<'info>{
+    #[account(mut)]
+    pub user : Signer<'info>,
+    #[account(
+        mut, // vault has to be interacted with
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump = vault_state.vault_bump,
+    )]
+    pub vault : SystemAccount<'info>,
+    #[account(
+        seeds = [b"state", user.key().as_ref()],
+        bump = vault_state.state_bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    pub system_program : Program<'info, System>,
+}
 
-//         Ok(())
-//     }
-// }
 
-// #[derive(Accounts)]
-// pub struct Close<'info> {
-//      TODO: Implement Close accounts
-// }
+impl<'info> Withdraw<'info>{
+    
 
-// impl<'info> Close<'info> {
-//     pub fn close(&mut self) -> Result<()> {
-//          TODO: Implement close
-//         Ok(())
-//     }
-// }
+    pub fn withdraw(&mut self, amount: u64) -> Result<()> {
+
+        let cpi_program = self.system_program.to_account_info();
+
+        let cpi_accounts = Transfer {
+            from: self.vault.to_account_info(),
+            to: self.user.to_account_info(),
+        };
+
+        let signer_seeds:   &[&[&[u8]]] =&[&[b"vault", self.vault_state.to_account_info().key.as_ref(), &[self.vault_state.vault_bump]]] ;
+
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
+
+        transfer(cpi_ctx, amount)?;
+
+        Ok(())
+    }
+}
+#[derive(Accounts)]
+pub struct Close<'info> {
+
+    #[account(mut)]
+    pub user : Signer<'info>,
+    #[account(
+        mut, // vault has to be interacted with
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump = vault_state.vault_bump,
+    )]
+    pub vault : SystemAccount<'info>,
+    #[account(
+        mut,
+        close = user,
+        seeds = [b"state", user.key().as_ref()],
+        bump = vault_state.state_bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    pub system_program : Program<'info, System>,
+}
+
+impl<'info> Close<'info> {
+    pub fn close(&mut self) -> Result<()> {
+        let cpi_program = self.system_program.to_account_info();
+
+        let cpi_accounts = Transfer {
+            from:self.vault.to_account_info(),
+            to: self.user.to_account_info()
+        };
+
+        let signer_seeds: &[&[&[u8]]] = &[&[b"vault", self.vault_state.to_account_info().key.as_ref(), &[self.vault_state.vault_bump]]];
+
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
+
+        transfer(cpi_ctx, self.vault.to_account_info().lamports())?;
+
+        Ok(())
+    }
+}
+
 
 #[derive(InitSpace)]
 #[account]
